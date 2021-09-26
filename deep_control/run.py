@@ -25,19 +25,23 @@ def save_video(video_path, video_name, img_lst):
 def run_env(agent, env, episodes, max_steps, curr_step, render=False, verbosity=1, discount=1.0):
     episode_return_history = []
     done_history = []
-    for episode in range(2):#episodes):
+    for episode in range(episodes):
         print("At episode {} / {}".format(episode, episodes))
         episode_return = 0.0
         state = env.reset()
+
+        print("original state: ", state)
         
         state = process_robomimic_state(state)
 
         img_lst = [] # save videos
         done, info = False, {}
-        for step_num in range(2):#100):
+        for step_num in range(100):
             if done:
                 break
+            print("state received: ", state)
             action = agent.forward(state)
+            print("action: ", action)
             state, reward, done, info = env.step(action)
             state = process_robomimic_state(state)
             img_lst.append(env.render(mode="rgb_array", height=256, width=256, camera_name="frontview")) # TODO
