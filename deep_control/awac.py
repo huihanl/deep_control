@@ -149,7 +149,7 @@ def awac(
                     done = True
 
         for _ in range(gradient_updates_per_step):
-            learn_awac(
+            loss = learn_awac(
                 buffer=buffer,
                 target_agent=target_agent,
                 agent=agent,
@@ -163,25 +163,38 @@ def awac(
                 update_policy=step % actor_delay == 0,
                 actor_per=actor_per,
             )
-
+            print("loss: ", loss)
+            if log_to_disk:
+                writer.add_scalar(
+                    "loss", loss, step * transitions_per_online_step
+                )
             # move target model towards training model
             if step % target_delay == 0:
                 utils.soft_update(target_agent.critic1, agent.critic1, tau)
                 utils.soft_update(target_agent.critic2, agent.critic2, tau)
 
         if (step % eval_interval == 0) or (step == total_steps - 1):
-            mean_return = run.evaluate_agent(
-                agent, test_env, eval_episodes, max_episode_steps, render
+            mean_return, mean_success = run.evaluate_agent(
+                agent, test_env, eval_episodes, max_episode_steps, step, render
             )
             if log_to_disk:
                 writer.add_scalar(
                     "return", mean_return, step * transitions_per_online_step
                 )
-
-        if step % save_interval == 0 and save_to_disk:
-            agent.save(save_dir)
+                writer.add_scalar(
+                    "success", mean_success, step * transitions_per_online_step
+                )
+        import os
+        if step % eval_interval == 0 and save_to_disk:
+            curr_dir = os.path.join(save_dir, "step_{}".format(step))
+            if not os.path.exists(curr_dir):
+                os.makedirs(curr_dir)
+            agent.save(curr_dir)
 
     if save_to_disk:
+        save_dir = os.path.join(save_dir, "final")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         agent.save(save_dir)
 
     return agent
@@ -274,14 +287,43 @@ def learn_awac(
             torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), actor_clip)
         actor_optimizer.step()
 
+    return actor_loss.item()
 
 def add_args(parser):
+
+    # TODO: new command line arguments, for testing without robosuite env 
+
+    parser.add_argument(
+        "--dataset_path",
+        type=str,
+        help="Dataset path to robomimic dataset",
+    )
+
+    parser.add_argument(
+        "--dataset_path_env",
+        type=str,
+        help="Dataset path to robomimic env",
+    )
+
+    parser.add_argument(
+        "--state_space",
+        type=int,
+        help="State space for testing",
+    )
+
+    parser.add_argument(
+        "--action_space",
+        type=int,
+        help="Action space for testing",
+    )
+
     parser.add_argument(
         "--num_steps_offline",
         type=int,
         default=500_000,
         help="Number of steps of offline learning",
     )
+
     parser.add_argument(
         "--num_steps_online",
         type=int,

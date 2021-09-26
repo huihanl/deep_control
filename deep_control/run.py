@@ -1,30 +1,61 @@
 import gym
 import numpy as np
 import torch
+import os 
 
 from . import envs, utils
 
+# TODO: build wrapper env instead of using this function
+def process_robomimic_state(state):
+    ee_pos = state["robot0_eef_pos"]
+    ee_quat = state["robot0_eef_quat"]
+    gripper_pos = state["robot0_gripper_qpos"]
+    object_info = state["object"]
+    obs = np.concatenate([ee_pos, ee_quat, gripper_pos, object_info])
+    return obs
 
-def run_env(agent, env, episodes, max_steps, render=False, verbosity=1, discount=1.0):
+def save_video(video_path, video_name, img_lst):
+    import os
+    import imageio
+    video_writer = imageio.get_writer(os.path.join(video_path, video_name), fps=20)
+    for img in img_lst:
+        video_writer.append_data(img)
+    video_writer.close()
+
+def run_env(agent, env, episodes, max_steps, curr_step, render=False, verbosity=1, discount=1.0):
     episode_return_history = []
-    if render:
-        env.render("rgb_array")
-    for episode in range(episodes):
+    done_history = []
+    for episode in range(2):#episodes):
+        print("At episode {} / {}".format(episode, episodes))
         episode_return = 0.0
         state = env.reset()
+        
+        state = process_robomimic_state(state)
+
+        img_lst = [] # save videos
         done, info = False, {}
-        for step_num in range(max_steps):
+        for step_num in range(2):#100):
             if done:
                 break
             action = agent.forward(state)
             state, reward, done, info = env.step(action)
-            if render:
-                env.render("rgb_array")
-            episode_return += reward * (discount ** step_num)
+            state = process_robomimic_state(state)
+            img_lst.append(env.render(mode="rgb_array", height=256, width=256, camera_name="frontview")) # TODO
+            episode_return += reward
         if verbosity:
             print(f"Episode {episode}:: {episode_return}")
         episode_return_history.append(episode_return)
-    return torch.tensor(episode_return_history)
+        done_history.append(float(int(done)))
+        print("success: ", done, " returns: ", episode_return)
+        
+        video_path = "/home/huihanl/test_video/step_{}".format(curr_step)
+        print("os.path.exists(video_path): ", os.path.exists(video_path))
+        print("video path: ", video_path)
+        if not os.path.exists(video_path):
+            os.makedirs(video_path)
+        save_video(video_path, "ep_{}.mp4".format(episode), img_lst)
+
+    return torch.tensor(episode_return_history), torch.tensor(done_history)
 
 
 def exploration_noise(action, random_process):
@@ -32,15 +63,16 @@ def exploration_noise(action, random_process):
 
 
 def evaluate_agent(
-    agent, env, eval_episodes, max_episode_steps, render=False, verbosity=0
+    agent, env, eval_episodes, max_episode_steps, curr_step, render=False, verbosity=0
 ):
     agent.eval()
-    returns = run_env(
-        agent, env, eval_episodes, max_episode_steps, render, verbosity=verbosity
+    returns, successes = run_env(
+        agent, env, eval_episodes, max_episode_steps, curr_step, render, verbosity=verbosity
     )
     agent.train()
     mean_return = returns.mean()
-    return mean_return
+    success_return = successes.mean()
+    return mean_return, success_return
 
 
 def collect_experience_by_steps(
